@@ -8,7 +8,6 @@ input_buttons = [Pin(pin, Pin.IN, Pin.PULL_UP) for pin in input_button_pins]
 
 i2c = I2C(0, scl=Pin(1), sda=Pin(0))
 oled = SSD1306_I2C(128, 32, i2c)
-led_onboard = Pin(17, Pin.OUT)
 
 sec = False
 door = False
@@ -51,28 +50,49 @@ def save_state():
         last_saved_values = current_state
 
 def update_oled():
-    oled.fill(0)
-    percentage = int((coin_dispensed / coin_inserted) * 100) if coin_inserted > 0 else 0
+    global oled, i2c
+    try:
+        oled.fill(0)
+        percentage = int((coin_dispensed / coin_inserted) * 100) if coin_inserted > 0 else 0
 
-    if display_mode == 0:
-        oled.text(f"G/ALL: {coin_inserted // 3} G", 0, 0)
-        oled.text(f"Diff: {coin_dispensed - coin_inserted}", 0, 10)
-        oled.text(f"   {percentage}%", 0, 20)
-    elif display_mode == 1:
-        oled.hline(14, 16, 100, 1)
-        bar_width = min(50, abs(percentage) * 50 // 500)
-        oled.text(f"{percentage}%", 54, 20)
-        if percentage > 0:
-            oled.fill_rect(64, 10, bar_width, 8, 1)
-        elif percentage < 0:
-            oled.fill_rect(64 - bar_width, 10, bar_width, 8, 1)
-    elif display_mode == 2:
-        oled.text(f"BONUS: {button4_count}", 0, 0)
-        oled.text(f"AT: {button5_count}", 0, 10)
-        oled.text(f"GAME: {now_game_count} G", 0, 20)
+        if display_mode == 0:
+            oled.text(f"G/ALL: {coin_inserted // 3} G", 0, 0)
+            oled.text(f"Diff: {coin_dispensed - coin_inserted}", 0, 10)
+            oled.text(f"   {percentage}%", 0, 20)
+        elif display_mode == 1:
+            oled.hline(14, 16, 100, 1)
+            bar_width = min(50, abs(percentage) * 50 // 500)
+            oled.text(f"{percentage}%", 54, 20)
+            if percentage > 0:
+                oled.fill_rect(64, 10, bar_width, 8, 1)
+            elif percentage < 0:
+                oled.fill_rect(64 - bar_width, 10, bar_width, 8, 1)
+        elif display_mode == 2:
+            oled.text(f"BONUS: {button4_count}", 0, 0)
+            oled.text(f"AT: {button5_count}", 0, 10)
+            oled.text(f"GAME: {now_game_count} G", 0, 20)
 
-    oled.show()
-
+        oled.show()
+        
+    except OSError as e:
+        print("OLED Connection error:", e)
+        print("Try reconnect...")
+        try:
+            time.sleep(0.5)
+            i2c = I2C(0, scl=Pin(1), sda=Pin(0))
+            devices = i2c.scan()
+            if not devices:
+                raise Exception("OLED device not found")
+            addr = devices[0]
+            print(f"Reinitialize device on {hex(addr)} ")
+            oled = SSD1306_I2C(128, 32, i2c, addr=addr)
+            oled.fill(0)
+            oled.text("Reinitialize Success", 0, 0)
+            oled.show()
+        except Exception as e2:
+            print("Reconnect failed:", e2)
+            save_state()
+            
 def print_and_update_state():
     global prev_state
     current_state = (coin_inserted, coin_dispensed, button3_count, button4_count, button5_count, now_game_count, sec, door)
@@ -127,9 +147,7 @@ for button in input_buttons:
 last_save_time = time.ticks_ms()
 
 while True:
-    led_onboard.toggle()
     time.sleep(0.3)
-
     if time.ticks_diff(time.ticks_ms(), last_save_time) > 30000:
         save_state()
         last_save_time = time.ticks_ms()
